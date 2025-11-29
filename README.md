@@ -1,3 +1,1 @@
-# RYOGPT-Telegram-Bot
-
-AI Telegram Bot using OpenRouter
+# RYO-REP-Telegram-Bot
