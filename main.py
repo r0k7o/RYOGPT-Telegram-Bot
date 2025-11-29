@@ -1,61 +1,33 @@
 #!/usr/bin/env python3
-"""
-Instagram Reporter Bot v5.0 ULTIMATE
-Advanced Anti-Detection & Anti-Ban Protection
-"""
-
 import asyncio
 import logging
 import time
 import random
 import sqlite3
 import threading
-import hashlib
-import uuid
-import string
+import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
 
 import requests
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, User
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = '8400952826:AAFDIGBqFIhFjGEXMAVhBPx2DWd60QOqjyA'
 OWNER_ID = 8496035093
-DEVELOPER = '@RW_B2'
-
-REPORT_TYPES = {
-    '1': 'Spam', '2': 'Self Injury', '3': 'Drugs', '4': 'Nudity',
-    '5': 'Violence (Type 3)', '6': 'Hate Speech', '7': 'Harassment',
-    '8': 'Impersonation', '9': 'Impersonation (Biz)', '10': 'Impersonation (BMW)',
-    '11': 'Under 13', '12': 'Gun Selling', '13': 'Violence (Type 1)', '14': 'Violence (Type 4)',
-}
-
-REPORT_CATEGORIES = {
-    'violence': {'5': 'Violence (Type 3)', '13': 'Violence (Type 1)', '14': 'Violence (Type 4)'},
-    'drugs': {'3': 'Drugs'},
-    'impersonation': {'8': 'Impersonation', '9': 'Impersonation (Biz)', '10': 'Impersonation (BMW)'},
-    'special': {'1': 'Spam', '2': 'Self Injury', '4': 'Nudity', '6': 'Hate Speech', '7': 'Harassment', '11': 'Under 13', '12': 'Gun Selling'},
-}
-
-CONTENT_TYPES = {
-    'profile': 'Report Profile Account',
-    'story': 'Report Story',
-    'reel': 'Report Reels',
-    'post': 'Report Post',
-}
+DEVELOPER_USERNAME = 'RW_B2'
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/110.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
-    "Mozilla/5.0 (iPad; CPU OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 Version/17.2 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (iPad; CPU OS 17_2 like Mac OS X) AppleWebKit/605.1.15 Version/17.2 Mobile/15E148 Safari/604.1",
 ]
 
 PROXIES = [
@@ -65,22 +37,71 @@ PROXIES = [
     "46.19.138.75:80", "92.242.192.99:80", "103.162.165.15:8080",
 ]
 
-class RateLimiter:
-    def __init__(self):
-        self.request_counts = defaultdict(list)
-    
-    def check_rate(self, session_id: str, max_per_minute: int = 10):
-        current_time = time.time()
-        self.request_counts[session_id] = [t for t in self.request_counts[session_id] if current_time - t < 60]
-        if len(self.request_counts[session_id]) >= max_per_minute:
-            return False
-        self.request_counts[session_id].append(current_time)
-        return True
+IMPERSONATION_TARGETS = {
+    'meta': ['Facebook Official', 'Instagram Official', 'WhatsApp Official', 'Threads Official', 'Meta Platforms'],
+    'apple': ['Apple Official', 'Apple Support', 'iTunes Official', 'Apple TV', 'App Store'],
+    'google': ['Google Official', 'Gmail Official', 'YouTube Official', 'Chrome Official', 'Google Play'],
+    'amazon': ['Amazon Official', 'Amazon Prime', 'AWS Official', 'Amazon Music', 'Amazon Books'],
+    'microsoft': ['Microsoft Official', 'Xbox Official', 'Windows Official', 'Outlook Official', 'Office 365'],
+    'netflix': ['Netflix Official', 'Netflix Support', 'Netflix Films', 'Netflix Series'],
+    'twitter': ['Twitter Official', 'Twitter Support', 'Twitter Safety', 'Twitter Developer'],
+    'tesla': ['Tesla Official', 'Elon Musk Verified', 'Tesla Energy', 'Tesla Service'],
+    'nike': ['Nike Official', 'Nike Store', 'Nike Support', 'Nike Sports'],
+    'adidas': ['Adidas Official', 'Adidas Store', 'Adidas Support', 'Adidas Sports'],
+    'crypto': ['Bitcoin Official', 'Ethereum Official', 'Coinbase Official', 'Binance Official'],
+    'gaming': ['PlayStation Official', 'Xbox Official', 'Nintendo Official', 'Steam Official'],
+}
 
-rate_limiter = RateLimiter()
+REPORT_CATEGORIES_FULL = {
+    'violence': {
+        '5': 'Violence', '13': 'Violence', '14': 'Violence Threat', 
+        '32': 'Dangerous or Harmful Acts', '25': 'Abuse of Animals'
+    },
+    'drugs': {
+        '3': 'Drugs', '17': 'Dangerous Content'
+    },
+    'sexual': {
+        '4': 'Sexual Content', '27': 'Sexual Exploitation', '26': 'Child Safety'
+    },
+    'impersonation': {
+        '8': 'Impersonation', '9': 'Impersonation', '10': 'Impersonation'
+    },
+    'harassment': {
+        '6': 'Hate Speech', '7': 'Harassment', '29': 'Hate Speech', 
+        '30': 'Bullying', '31': 'Doxxing'
+    },
+    'abuse': {
+        '15': 'Self-Injury Content', '2': 'Self-Injury', '33': 'Self-Harm Content', '34': 'Eating Disorder Content'
+    },
+    'misinformation': {
+        '16': 'Misinformation', '22': 'False Information', '21': 'Scam'
+    },
+    'spam': {
+        '1': 'Spam', '19': 'Spam', '20': 'Inauthentic Activity'
+    },
+    'intellectual': {
+        '18': 'Intellectual Property', '23': 'Copyright Infringement', 
+        '24': 'Counterfeit Goods'
+    },
+    'illegal': {
+        '28': 'Illegal Activity', '12': 'Illegal Sale of Goods', '11': 'Minor Safety Concern'
+    }
+}
+
+REPORT_TYPES = {
+    '1': 'Spam', '2': 'Self-Injury', '3': 'Drugs', '4': 'Sexual Content',
+    '5': 'Violence', '6': 'Hate Speech', '7': 'Harassment',
+    '8': 'Impersonation', '9': 'Impersonation', '10': 'Impersonation',
+    '11': 'Minor Safety Concern', '12': 'Illegal Sale of Goods', '13': 'Violence', '14': 'Violence Threat',
+    '15': 'Self-Injury Content', '16': 'Misinformation', '17': 'Dangerous Content', '18': 'Intellectual Property',
+    '19': 'Spam', '20': 'Inauthentic Activity', '21': 'Scam', '22': 'False Information',
+    '23': 'Copyright Infringement', '24': 'Counterfeit Goods', '25': 'Abuse of Animals', '26': 'Child Safety',
+    '27': 'Sexual Exploitation', '28': 'Illegal Activity', '29': 'Hate Speech', '30': 'Bullying',
+    '31': 'Doxxing', '32': 'Dangerous or Harmful Acts', '33': 'Self-Harm Content', '34': 'Eating Disorder Content',
+}
 
 class Database:
-    def __init__(self, db_name: str = 'instagram_reporter.db'):
+    def __init__(self, db_name: str = 'reporter_pro.db'):
         self.db_name = db_name
         self.init_db()
     
@@ -92,22 +113,11 @@ class Database:
     def init_db(self):
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('''CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT,
-            is_admin INTEGER DEFAULT 0, is_subscribed INTEGER DEFAULT 0,
-            subscription_expires TEXT, added_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS access_codes (
-            id INTEGER PRIMARY KEY, code TEXT UNIQUE NOT NULL, expires_at TEXT NOT NULL,
-            created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS user_sessions (
-            id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, session_id TEXT NOT NULL,
-            csrf_token TEXT NOT NULL, is_valid INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS user_targets (
-            id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, target_username TEXT NOT NULL,
-            target_id TEXT, added_at TEXT DEFAULT CURRENT_TIMESTAMP)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS ban_log (
-            id INTEGER PRIMARY KEY, user_id INTEGER, session_id TEXT,
-            banned_at TEXT DEFAULT CURRENT_TIMESTAMP)''')
+        cursor.execute('CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, role TEXT DEFAULT user, subscription_expires TEXT, subscription_days INTEGER DEFAULT 0, added_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS access_codes (id INTEGER PRIMARY KEY, code TEXT UNIQUE NOT NULL, expires_at TEXT NOT NULL, created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS user_sessions (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, session_id TEXT NOT NULL, is_valid INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS user_targets (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, target_username TEXT NOT NULL, target_id TEXT, added_at TEXT DEFAULT CURRENT_TIMESTAMP)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS admin_settings (id INTEGER PRIMARY KEY, setting_key TEXT UNIQUE, setting_value TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)')
         conn.commit()
         conn.close()
     
@@ -122,54 +132,66 @@ class Database:
         except:
             return False
     
-    def add_user(self, user_id: int, username: str, first_name: str, added_by: int, is_subscribed: int = 0, days: int = 0) -> bool:
+    def add_user(self, user_id: int, username: str, first_name: str, role: str = 'user', added_by: int = None, days: int = 30) -> bool:
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            expires = (datetime.now() + timedelta(days=days)).isoformat() if is_subscribed else None
-            cursor.execute('INSERT OR REPLACE INTO users (user_id, username, first_name, is_subscribed, subscription_expires, added_by) VALUES (?, ?, ?, ?, ?, ?)',
-                (user_id, username, first_name, is_subscribed, expires, added_by))
+            expires = (datetime.now() + timedelta(days=days)).isoformat() if role == 'user' else None
+            cursor.execute('INSERT OR REPLACE INTO users (user_id, username, first_name, role, subscription_expires, subscription_days, added_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                (user_id, username, first_name, role, expires, days, added_by or OWNER_ID))
             conn.commit()
             conn.close()
             return True
         except:
             return False
     
-    def is_subscribed(self, user_id: int) -> bool:
+    def get_user_role(self, user_id: int) -> str:
         if user_id == OWNER_ID:
-            return True
+            return 'owner'
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            cursor.execute('SELECT is_subscribed, subscription_expires FROM users WHERE user_id = ?', (user_id,))
+            cursor.execute('SELECT role, subscription_expires FROM users WHERE user_id = ?', (user_id,))
             result = cursor.fetchone()
             conn.close()
-            if result and result['is_subscribed']:
-                expires = datetime.fromisoformat(result['subscription_expires']) if result['subscription_expires'] else None
-                if expires and expires > datetime.now():
-                    return True
-            return False
+            if result:
+                role, expires = result['role'], result['subscription_expires']
+                if role == 'user' and expires:
+                    if datetime.fromisoformat(expires) < datetime.now():
+                        return 'expired'
+                return role
+            return 'none'
+        except:
+            return 'none'
+    
+    def get_user_info(self, user_id: int) -> Dict:
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT user_id, username, role, subscription_expires, subscription_days FROM users WHERE user_id = ?', (user_id,))
+            result = cursor.fetchone()
+            conn.close()
+            return dict(result) if result else {}
+        except:
+            return {}
+    
+    def set_user_role(self, user_id: int, new_role: str) -> bool:
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('UPDATE users SET role = ? WHERE user_id = ?', (new_role, user_id))
+            conn.commit()
+            conn.close()
+            return True
         except:
             return False
     
-    def is_admin(self, user_id: int) -> bool:
-        if user_id == OWNER_ID:
-            return True
+    def set_user_subscription(self, user_id: int, days: int) -> bool:
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            cursor.execute('SELECT is_admin FROM users WHERE user_id = ?', (user_id,))
-            result = cursor.fetchone()
-            conn.close()
-            return result is not None and result['is_admin'] == 1
-        except:
-            return False
-    
-    def set_admin(self, user_id: int, is_admin: int) -> bool:
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('UPDATE users SET is_admin = ? WHERE user_id = ?', (is_admin, user_id))
+            expires = (datetime.now() + timedelta(days=days)).isoformat()
+            cursor.execute('UPDATE users SET subscription_expires = ?, subscription_days = ? WHERE user_id = ?', (expires, days, user_id))
             conn.commit()
             conn.close()
             return True
@@ -194,7 +216,7 @@ class Database:
             cursor = conn.cursor()
             cursor.execute('SELECT id FROM access_codes WHERE code = ? AND expires_at > ?', (code, datetime.now().isoformat()))
             if cursor.fetchone():
-                self.add_user(user_id, '', '', OWNER_ID, is_subscribed=1, days=30)
+                self.add_user(user_id, '', '', 'user')
                 cursor.execute('DELETE FROM access_codes WHERE code = ?', (code,))
                 conn.commit()
                 conn.close()
@@ -204,11 +226,20 @@ class Database:
         except:
             return False
     
-    def add_session(self, user_id: int, session_id: str, csrf_token: str) -> bool:
+    def get_all_users(self) -> List[Dict]:
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            cursor.execute('INSERT INTO user_sessions (user_id, session_id, csrf_token) VALUES (?, ?, ?)', (user_id, session_id, csrf_token))
+            cursor.execute('SELECT user_id, username, role, subscription_expires FROM users ORDER BY created_at DESC')
+            return [dict(row) for row in cursor.fetchall()]
+        except:
+            return []
+    
+    def add_session(self, user_id: int, session_id: str) -> bool:
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('INSERT INTO user_sessions (user_id, session_id) VALUES (?, ?)', (user_id, session_id))
             conn.commit()
             conn.close()
             return True
@@ -219,10 +250,8 @@ class Database:
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            cursor.execute('SELECT session_id, csrf_token FROM user_sessions WHERE user_id = ? AND is_valid = 1', (user_id,))
-            sessions = [dict(row) for row in cursor.fetchall()]
-            conn.close()
-            return sessions
+            cursor.execute('SELECT session_id FROM user_sessions WHERE user_id = ? AND is_valid = 1', (user_id,))
+            return [dict(row) for row in cursor.fetchall()]
         except:
             return []
     
@@ -242,33 +271,29 @@ class Database:
             conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('SELECT target_username, target_id FROM user_targets WHERE user_id = ?', (user_id,))
-            targets = [dict(row) for row in cursor.fetchall()]
-            conn.close()
-            return targets
+            return [dict(row) for row in cursor.fetchall()]
         except:
             return []
     
-    def get_all_users(self) -> List[Dict]:
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('SELECT user_id, username, is_admin, is_subscribed FROM users ORDER BY created_at DESC')
-            users = [dict(row) for row in cursor.fetchall()]
-            conn.close()
-            return users
-        except:
-            return []
-    
-    def get_all_codes(self) -> List[Tuple]:
+    def get_access_codes(self) -> List:
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('SELECT code, expires_at FROM access_codes WHERE expires_at > ? ORDER BY expires_at', (datetime.now().isoformat(),))
-            codes = cursor.fetchall()
-            conn.close()
-            return codes
+            return cursor.fetchall()
         except:
             return []
+    
+    def cleanup_expired_users(self):
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('UPDATE users SET role = ? WHERE role = ? AND subscription_expires < ?', 
+                ('expired', 'user', datetime.now().isoformat()))
+            conn.commit()
+            conn.close()
+        except:
+            pass
 
 db = Database()
 
@@ -279,48 +304,39 @@ class InstagramAPI:
     
     @staticmethod
     def get_random_proxy() -> Optional[str]:
-        if random.random() > 0.3:
-            return random.choice(PROXIES)
-        return None
+        return random.choice(PROXIES) if random.random() > 0.3 else None
     
     @staticmethod
     def random_delay():
-        delay = random.uniform(5, 20)
-        time.sleep(delay)
+        time.sleep(random.uniform(5, 20))
     
     @staticmethod
-    def get_anti_detection_headers(session_id: str, csrf_token: str) -> Dict:
+    def get_headers(session_id: str) -> Dict:
         return {
             'User-Agent': InstagramAPI.get_random_user_agent(),
-            'Accept-Language': random.choice(['en-US,en;q=0.9', 'en-GB,en;q=0.8', 'en;q=0.7']),
+            'Accept-Language': random.choice(['en-US,en;q=0.9', 'en-GB,en;q=0.8']),
             'Accept-Encoding': 'gzip, deflate, br',
             'Accept': '*/*',
             'Cache-Control': 'no-cache',
             'Pragma': 'no-cache',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-site',
             'Connection': 'keep-alive',
             'Host': 'i.instagram.com',
             'Origin': 'https://www.instagram.com',
             'Referer': 'https://www.instagram.com/',
-            'Cookie': f'sessionid={session_id}; Path=/; Domain=.instagram.com',
-            'X-CSRFToken': csrf_token,
+            'Cookie': f'sessionid={session_id}',
             'X-IG-App-ID': '936619743392459',
-            'X-IG-WWW-Claim': '0',
             'X-Requested-With': 'XMLHttpRequest',
             'X-IG-Connection-Type': random.choice(['WIFI', '4g', '5g']),
-            'X-IG-Connection-Speed': random.choice(['slow-2g', '2g', '3g', '4g']),
         }
     
     @staticmethod
-    def validate_session(session_id: str, csrf_token: str) -> bool:
+    def validate_session(session_id: str) -> bool:
         try:
-            headers = InstagramAPI.get_anti_detection_headers(session_id, csrf_token)
+            InstagramAPI.random_delay()
+            headers = InstagramAPI.get_headers(session_id)
             proxy_url = InstagramAPI.get_random_proxy()
             proxies = {'http': f'http://{proxy_url}', 'https': f'http://{proxy_url}'} if proxy_url else None
-            InstagramAPI.random_delay()
-            response = requests.get('https://i.instagram.com/api/v1/accounts/current_user/', headers=headers, proxies=proxies, timeout=10, allow_redirects=False)
+            response = requests.get('https://i.instagram.com/api/v1/accounts/current_user/', headers=headers, proxies=proxies, timeout=10)
             return response.status_code == 200
         except:
             return False
@@ -331,52 +347,45 @@ class InstagramAPI:
             target_clean = target.lower().replace('@', '').strip()
             for attempt in range(3):
                 try:
-                    headers = {'User-Agent': InstagramAPI.get_random_user_agent(), 'Accept-Language': 'en-US,en;q=0.9', 'Accept-Encoding': 'gzip, deflate', 'Connection': 'keep-alive'}
+                    InstagramAPI.random_delay()
+                    headers = {'User-Agent': InstagramAPI.get_random_user_agent(), 'Accept-Language': 'en-US,en;q=0.9', 'Connection': 'keep-alive'}
                     proxy_url = InstagramAPI.get_random_proxy()
                     proxies = {'http': f'http://{proxy_url}', 'https': f'http://{proxy_url}'} if proxy_url else None
-                    InstagramAPI.random_delay()
-                    response = requests.post('https://i.instagram.com/api/v1/users/lookup/', headers=headers, data={'signed_body': f'35a2d547d3b6ff400f713948cdffe0b789a903f86117eb6e2f3e573079b2f038.{{"q":"{target_clean}"}}'}, proxies=proxies, timeout=10, allow_redirects=False)
-                    if response.status_code == 200:
-                        data = response.json()
-                        if 'user_id' in data:
-                            return str(data['user_id'])
+                    response = requests.post('https://i.instagram.com/api/v1/users/lookup/', headers=headers, 
+                        data={'signed_body': f'35a2d547d3b6ff400f713948cdffe0b789a903f86117eb6e2f3e573079b2f038.{{"q":"{target_clean}"}}'}, 
+                        proxies=proxies, timeout=10)
+                    if response.status_code == 200 and 'user_id' in response.json():
+                        return str(response.json()['user_id'])
                 except:
                     if attempt < 2:
                         time.sleep(random.uniform(3, 8))
-                    continue
             return None
         except:
             return None
     
     @staticmethod
-    def send_report(target_id: str, session_id: str, csrf_token: str, reason: str, content_type: str = 'profile') -> Tuple[bool, int, str]:
+    def send_report(target_id: str, session_id: str, reason: str, content_type: str = 'profile') -> Tuple[bool, int, str]:
         try:
-            if not rate_limiter.check_rate(session_id):
-                return False, 429, "Rate limited"
             InstagramAPI.random_delay()
-            headers = InstagramAPI.get_anti_detection_headers(session_id, csrf_token)
-            if content_type == 'post':
-                endpoint = f"https://i.instagram.com/media/{target_id}/flag/"
-            elif content_type == 'story':
-                endpoint = f"https://i.instagram.com/stories/{target_id}/flag/"
-            elif content_type == 'reel':
-                endpoint = f"https://i.instagram.com/clips/{target_id}/flag/"
-            else:
-                endpoint = f"https://i.instagram.com/users/{target_id}/flag/"
+            headers = InstagramAPI.get_headers(session_id)
+            endpoints = {
+                'post': f'https://i.instagram.com/media/{target_id}/flag/',
+                'story': f'https://i.instagram.com/stories/{target_id}/flag/',
+                'reel': f'https://i.instagram.com/clips/{target_id}/flag/',
+                'profile': f'https://i.instagram.com/users/{target_id}/flag/',
+            }
+            endpoint = endpoints.get(content_type, endpoints['profile'])
             proxy_url = InstagramAPI.get_random_proxy()
             proxies = {'http': f'http://{proxy_url}', 'https': f'http://{proxy_url}'} if proxy_url else None
-            response = requests.post(endpoint, headers=headers, data=f'source_name=&reason_id={reason}&frx_context=', proxies=proxies, allow_redirects=False, timeout=15, verify=False)
-            status = response.status_code
-            if status == 429:
-                return False, 429, "ACCOUNT FLAGGED - BAN DETECTED"
-            elif status == 500:
-                return False, 500, "Target not found"
-            elif status in [200, 302]:
-                return True, status, "Success"
-            elif status == 401 or status == 403:
-                return False, status, "Invalid session"
+            response = requests.post(endpoint, headers=headers, data=f'source_name=&reason_id={reason}&frx_context=', proxies=proxies, timeout=15, verify=False)
+            if response.status_code in [200, 302]:
+                return True, 200, 'Success'
+            elif response.status_code == 429:
+                return False, 429, 'Account Banned'
+            elif response.status_code == 500:
+                return False, 500, 'Target Not Found'
             else:
-                return False, status, f"Error {status}"
+                return False, response.status_code, f'Error {response.status_code}'
         except Exception as e:
             return False, 0, str(e)
 
@@ -384,6 +393,9 @@ class TelegramBot:
     def __init__(self):
         self.app = Application.builder().token(BOT_TOKEN).build()
         self.setup_handlers()
+        self.cleanup_thread = threading.Thread(target=self.cleanup_loop, daemon=True)
+        self.cleanup_thread.start()
+        self.stop_flag = {}
     
     def setup_handlers(self):
         self.app.add_handler(CommandHandler("start", self.start))
@@ -391,57 +403,101 @@ class TelegramBot:
         self.app.add_handler(CallbackQueryHandler(self.button_callback))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.message_handler))
     
+    def cleanup_loop(self):
+        while True:
+            time.sleep(3600)
+            db.cleanup_expired_users()
+    
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             user_id = update.effective_user.id
             username = update.effective_user.username or 'NoUsername'
             first_name = update.effective_user.first_name or 'User'
             if not db.is_user_exists(user_id):
-                db.add_user(user_id, username, first_name, OWNER_ID)
-            if user_id == OWNER_ID:
+                db.add_user(user_id, username, first_name, 'user')
+            role = db.get_user_role(user_id)
+            if role == 'owner':
                 await self.show_owner_menu(update, context)
-            elif db.is_admin(user_id):
+            elif role == 'admin':
                 await self.show_admin_menu(update, context)
-            elif db.is_subscribed(user_id):
+            elif role == 'user':
                 await self.show_user_menu(update, context)
             else:
-                context.user_data['state'] = 'waiting_subscription'
-                await update.message.reply_text(f"Welcome! Need subscription.\n\nDeveloper: {DEVELOPER}\n\nSend access code or ask admin.")
+                context.user_data['state'] = 'waiting_code'
+                await update.message.reply_text(f"Welcome to Instagram Reporter\n\nYou need subscription to access this bot.\n\nAsk administrator for access code.\n\nDeveloper: @{DEVELOPER_USERNAME}")
         except:
             pass
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        try:
-            text = f"""All Report Types:
-1=Spam 2=Self Injury 3=Drugs 4=Nudity
-5=Violence(3) 6=Hate 7=Harassment
-8=Impersonation 9=Impersonation(Biz) 10=Impersonation(BMW)
-11=Under13 12=Gun 13=Violence(1) 14=Violence(4)
+        text = f"""Report Categories Available:
 
-Developer: {DEVELOPER}"""
-            await update.message.reply_text(text)
-        except:
-            pass
+Violence | Sexual Content | Impersonation
+Harassment | Abuse | Misinformation
+Spam | Intellectual Property | Illegal
+
+34 Report Types Total
+
+Developer: @{DEVELOPER_USERNAME}"""
+        await update.message.reply_text(text)
     
     async def show_owner_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        keyboard = [[InlineKeyboardButton("Add Admin", callback_data='owner_add_admin')], [InlineKeyboardButton("View Users", callback_data='owner_view_users')], [InlineKeyboardButton("Create Code", callback_data='owner_create_code')], [InlineKeyboardButton("View Codes", callback_data='owner_view_codes')], [InlineKeyboardButton("Start Reporting", callback_data='start_reporting')]]
-        text = f"OWNER PANEL\n\nDeveloper: {DEVELOPER}"
+        keyboard = [
+            [InlineKeyboardButton("Dashboard", callback_data='owner_dashboard')],
+            [InlineKeyboardButton("User Management", callback_data='owner_users')],
+            [InlineKeyboardButton("Admin Control", callback_data='owner_admins')],
+            [InlineKeyboardButton("Access Codes", callback_data='owner_codes')],
+            [InlineKeyboardButton("Broadcast Message", callback_data='owner_broadcast')],
+            [InlineKeyboardButton("Start Reporting", callback_data='start_report')],
+        ]
+        text = "OWNER CONTROL PANEL\n\nFull Administrative Access"
         if update.callback_query:
             await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         else:
             await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     
+    async def show_owner_dashboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        users = db.get_all_users()
+        total_users = len(users)
+        admins = len([u for u in users if u['role'] == 'admin'])
+        expired = len([u for u in users if u['role'] == 'expired'])
+        
+        text = f"""OWNER DASHBOARD
+
+Total Users: {total_users}
+Active Admins: {admins}
+Expired Subscriptions: {expired}
+
+Quick Actions:
+"""
+        keyboard = [
+            [InlineKeyboardButton("Add User Subscription", callback_data='dash_add_sub')],
+            [InlineKeyboardButton("Remove User", callback_data='dash_remove_user')],
+            [InlineKeyboardButton("Send Message", callback_data='dash_send_msg')],
+            [InlineKeyboardButton("View Stats", callback_data='dash_stats')],
+            [InlineKeyboardButton("Back", callback_data='back_owner')],
+        ]
+        await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    
     async def show_admin_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        keyboard = [[InlineKeyboardButton("Add User", callback_data='admin_add_user')], [InlineKeyboardButton("Create Code", callback_data='admin_create_code')], [InlineKeyboardButton("Start Reporting", callback_data='start_reporting')]]
-        text = "ADMIN PANEL"
+        keyboard = [
+            [InlineKeyboardButton("Add User", callback_data='admin_add_user')],
+            [InlineKeyboardButton("Create Code", callback_data='admin_create_code')],
+            [InlineKeyboardButton("Send Message", callback_data='admin_send_msg')],
+            [InlineKeyboardButton("Start Reporting", callback_data='start_report')],
+        ]
+        text = "ADMIN PANEL\n\nAdministration Tools"
         if update.callback_query:
             await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         else:
             await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     
     async def show_user_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        keyboard = [[InlineKeyboardButton("Add Sessions", callback_data='add_sessions')], [InlineKeyboardButton("Add Targets", callback_data='add_targets')], [InlineKeyboardButton("Start Reporting", callback_data='start_reporting')]]
-        text = "INSTAGRAM REPORTER"
+        keyboard = [
+            [InlineKeyboardButton("Add Sessions", callback_data='user_sessions')],
+            [InlineKeyboardButton("Add Targets", callback_data='user_targets')],
+            [InlineKeyboardButton("Start Reporting", callback_data='start_report')],
+        ]
+        text = "INSTAGRAM REPORTER\n\nManage your accounts and targets"
         if update.callback_query:
             await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         else:
@@ -453,184 +509,400 @@ Developer: {DEVELOPER}"""
             await query.answer()
             user_id = update.effective_user.id
             callback = query.data
-            if callback == 'owner_add_admin':
-                context.user_data['state'] = 'owner_add_admin'
-                await query.edit_message_text("Enter user ID:")
-            elif callback == 'owner_view_users':
+            
+            if callback == 'owner_dashboard':
+                await self.show_owner_dashboard(update, context)
+            
+            elif callback == 'back_owner':
+                await self.show_owner_menu(update, context)
+            
+            elif callback == 'dash_add_sub':
+                context.user_data['state'] = 'dash_add_sub_id'
+                await query.edit_message_text("Enter user ID to add subscription:")
+            
+            elif callback == 'dash_remove_user':
+                context.user_data['state'] = 'dash_remove_user_id'
+                await query.edit_message_text("Enter user ID to remove:")
+            
+            elif callback == 'dash_send_msg':
+                context.user_data['state'] = 'dash_send_to_user_id'
+                await query.edit_message_text("Enter user ID to send message (or ALL for all users):")
+            
+            elif callback == 'dash_stats':
                 users = db.get_all_users()
-                text = "Users:\n\n"
+                active = len([u for u in users if u['role'] == 'user'])
+                admins = len([u for u in users if u['role'] == 'admin'])
+                text = f"""Statistics:
+
+Active Users: {active}
+Admins: {admins}
+Total: {len(users)}
+
+System Status: Online
+"""
+                await query.edit_message_text(text)
+            
+            elif callback == 'owner_users':
+                users = db.get_all_users()
+                text = "User Management:\n\n"
                 for u in users[:10]:
-                    text += f"- {u['user_id']} ({u['username']})\n"
+                    text += f"ID: {u['user_id']} | Role: {u['role']} | @{u['username']}\n"
                 await query.edit_message_text(text)
-            elif callback == 'owner_create_code':
-                context.user_data['state'] = 'owner_create_code'
-                await query.edit_message_text("Format: CODE,DAYS\nExample: ABC123,30")
-            elif callback == 'owner_view_codes':
-                codes = db.get_all_codes()
-                text = "Active Codes:\n\n"
-                for code, exp in codes[:5]:
-                    text += f"- {code}\n"
+            
+            elif callback == 'owner_admins':
+                context.user_data['state'] = 'owner_admin_action'
+                keyboard = [[InlineKeyboardButton("Add Admin", callback_data='owner_add_admin')], [InlineKeyboardButton("Remove Admin", callback_data='owner_remove_admin')]]
+                await query.edit_message_text("Admin Management:", reply_markup=InlineKeyboardMarkup(keyboard))
+            
+            elif callback == 'owner_add_admin':
+                context.user_data['state'] = 'owner_add_admin_id'
+                await query.edit_message_text("Enter user ID to make admin:")
+            
+            elif callback == 'owner_remove_admin':
+                context.user_data['state'] = 'owner_remove_admin_id'
+                await query.edit_message_text("Enter admin ID to remove (Cannot remove owner):")
+            
+            elif callback == 'owner_codes':
+                codes = db.get_access_codes()
+                text = "Active Access Codes:\n\n"
+                for code, exp in codes[:10]:
+                    text += f"Code: {code}\n"
                 await query.edit_message_text(text)
+            
+            elif callback == 'owner_broadcast':
+                context.user_data['state'] = 'owner_broadcast_msg'
+                await query.edit_message_text("Enter broadcast message:")
+            
             elif callback == 'admin_add_user':
-                context.user_data['state'] = 'admin_add_user'
+                context.user_data['state'] = 'admin_add_user_id'
                 await query.edit_message_text("Enter user ID:")
+            
             elif callback == 'admin_create_code':
-                context.user_data['state'] = 'admin_create_code'
-                await query.edit_message_text("Format: CODE,DAYS")
-            elif callback == 'add_sessions':
-                context.user_data['state'] = 'add_session'
-                keyboard = [[InlineKeyboardButton("Single", callback_data='single_session')], [InlineKeyboardButton("Multi", callback_data='multi_session')]]
-                await query.edit_message_text("Select mode:", reply_markup=InlineKeyboardMarkup(keyboard))
-            elif callback == 'single_session':
+                context.user_data['state'] = 'admin_create_code_input'
+                await query.edit_message_text("Format: CODE,DAYS\nExample: PROMO123,30")
+            
+            elif callback == 'admin_send_msg':
+                context.user_data['state'] = 'admin_send_msg_id'
+                await query.edit_message_text("Enter user ID to message:")
+            
+            elif callback == 'user_sessions':
+                keyboard = [[InlineKeyboardButton("Single Session", callback_data='user_single_session')], [InlineKeyboardButton("Multi Sessions", callback_data='user_multi_session')]]
+                await query.edit_message_text("Session Mode:", reply_markup=InlineKeyboardMarkup(keyboard))
+            
+            elif callback == 'user_single_session':
+                context.user_data['state'] = 'input_single_session'
                 context.user_data['session_mode'] = 'single'
-                context.user_data['state'] = 'input_session'
-                await query.edit_message_text("Send: sessionid:csrftoken")
-            elif callback == 'multi_session':
+                await query.edit_message_text("Send: sessionid")
+            
+            elif callback == 'user_multi_session':
+                context.user_data['state'] = 'input_multi_session'
                 context.user_data['session_mode'] = 'multi'
-                context.user_data['state'] = 'input_session'
-                await query.edit_message_text("Send sessions (new line each)")
-            elif callback == 'add_targets':
-                context.user_data['state'] = 'add_target'
-                keyboard = [[InlineKeyboardButton("Single", callback_data='single_target')], [InlineKeyboardButton("Multi", callback_data='multi_target')]]
-                await query.edit_message_text("Select mode:", reply_markup=InlineKeyboardMarkup(keyboard))
-            elif callback == 'single_target':
-                context.user_data['target_mode'] = 'single'
-                context.user_data['state'] = 'input_target'
-                await query.edit_message_text("Send: @username or id:12345")
-            elif callback == 'multi_target':
-                context.user_data['target_mode'] = 'multi'
-                context.user_data['state'] = 'input_target'
-                await query.edit_message_text("Send targets: user1:user2:user3")
-            elif callback == 'start_reporting':
-                await self.choose_content_type(update, context)
-            elif callback.startswith('content_'):
-                content_type = callback.replace('content_', '')
+                await query.edit_message_text("Send sessions (one per line)")
+            
+            elif callback == 'user_targets':
+                keyboard = [[InlineKeyboardButton("Single Target", callback_data='user_single_target')], [InlineKeyboardButton("Multi Targets", callback_data='user_multi_target')]]
+                await query.edit_message_text("Target Mode:", reply_markup=InlineKeyboardMarkup(keyboard))
+            
+            elif callback == 'user_single_target':
+                context.user_data['state'] = 'input_single_target'
+                await query.edit_message_text("Send target: @username or userid")
+            
+            elif callback == 'user_multi_target':
+                context.user_data['state'] = 'input_multi_target'
+                await query.edit_message_text("Send targets (separated by space or line)")
+            
+            elif callback == 'start_report':
+                sessions = db.get_sessions(user_id)
+                targets = db.get_targets(user_id)
+                if not sessions or not targets:
+                    await query.edit_message_text("Error: Add sessions and targets first!")
+                    return
+                keyboard = [[InlineKeyboardButton("Profile", callback_data='report_profile')], [InlineKeyboardButton("Story", callback_data='report_story')], [InlineKeyboardButton("Reels", callback_data='report_reel')], [InlineKeyboardButton("Post", callback_data='report_post')]]
+                await query.edit_message_text("Select content type:", reply_markup=InlineKeyboardMarkup(keyboard))
+            
+            elif callback.startswith('report_'):
+                content_type = callback.replace('report_', '')
                 context.user_data['content_type'] = content_type
                 if content_type == 'profile':
-                    await self.choose_report_mode(update, context)
+                    await self.show_categories(update, context)
                 else:
-                    buttons = [[InlineKeyboardButton("All", callback_data=f'report_all_{content_type}')], [InlineKeyboardButton("Single", callback_data=f'report_single_{content_type}')]]
-                    await query.edit_message_text("Mode:", reply_markup=InlineKeyboardMarkup(buttons))
+                    keyboard = [[InlineKeyboardButton("All", callback_data=f'report_all_{content_type}')], [InlineKeyboardButton("Single", callback_data=f'report_single_{content_type}')]]
+                    await query.edit_message_text("Report mode:", reply_markup=InlineKeyboardMarkup(keyboard))
+            
             elif callback.startswith('report_all_'):
                 content_type = callback.replace('report_all_', '')
                 context.user_data['content_type'] = content_type
                 context.user_data['report_mode'] = 'all'
-                await self.choose_report_mode(update, context)
+                await self.show_categories(update, context)
+            
             elif callback.startswith('report_single_'):
                 content_type = callback.replace('report_single_', '')
                 context.user_data['content_type'] = content_type
                 context.user_data['report_mode'] = 'single'
                 context.user_data['state'] = 'input_item_id'
-                await query.edit_message_text(f"Send {content_type} ID")
-            elif callback.startswith('mode_'):
-                mode = callback.replace('mode_', '')
-                context.user_data['report_type'] = mode
-                if mode == 'normal':
-                    await self.show_report_categories(update, context)
-                else:
-                    await self.show_advanced_mode(update, context)
+                await query.edit_message_text(f"Send {content_type} ID or link:")
+            
+            elif callback == 'show_categories':
+                await self.show_categories(update, context)
+            
             elif callback.startswith('category_'):
                 category = callback.replace('category_', '')
+                
+                if category == 'impersonation_targets':
+                    buttons = []
+                    for brand in list(IMPERSONATION_TARGETS.keys()):
+                        buttons.append([InlineKeyboardButton(f"impersonation {brand}", callback_data=f'imperson_brand_{brand}')])
+                    buttons.append([InlineKeyboardButton("BACK", callback_data='show_categories')])
+                    await query.edit_message_text("Impersonation Targets:", reply_markup=InlineKeyboardMarkup(buttons))
+                
+                elif category.startswith('brand_'):
+                    brand = category.replace('brand_', '')
+                    buttons = []
+                    if brand in IMPERSONATION_TARGETS:
+                        for target in IMPERSONATION_TARGETS[brand]:
+                            buttons.append([InlineKeyboardButton(f"impersonation {target}", callback_data=f'reason_imperson_{brand}_{target}')])
+                    buttons.append([InlineKeyboardButton("BACK", callback_data='category_impersonation_targets')])
+                    await query.edit_message_text(f"impersonation {brand.upper()}:", reply_markup=InlineKeyboardMarkup(buttons))
+                
+                elif category in REPORT_CATEGORIES_FULL:
+                    buttons = []
+                    items = list(REPORT_CATEGORIES_FULL[category].items())
+                    for i in range(0, len(items), 2):
+                        row = []
+                        for type_key, type_name in items[i:i+2]:
+                            row.append(InlineKeyboardButton(f"{type_key}-{type_name[:15]}", callback_data=f'reason_{type_key}'))
+                        buttons.append(row)
+                    buttons.append([InlineKeyboardButton("BACK", callback_data='show_categories')])
+                    await query.edit_message_text(f"Category: {category.upper()}", reply_markup=InlineKeyboardMarkup(buttons))
+            
+            elif callback.startswith('imperson_brand_'):
+                brand = callback.replace('imperson_brand_', '')
                 buttons = []
-                if category in REPORT_CATEGORIES:
-                    for type_key, type_name in REPORT_CATEGORIES[category].items():
-                        buttons.append([InlineKeyboardButton(f"{type_key}-{type_name}", callback_data=f'type_{type_key}')])
-                await query.edit_message_text("Type:", reply_markup=InlineKeyboardMarkup(buttons))
-            elif callback.startswith('type_'):
-                reason = callback.replace('type_', '')
+                if brand in IMPERSONATION_TARGETS:
+                    for target in IMPERSONATION_TARGETS[brand]:
+                        buttons.append([InlineKeyboardButton(f"impersonation {target}", callback_data=f'reason_imperson_{brand}_{target}')])
+                buttons.append([InlineKeyboardButton("BACK", callback_data='category_impersonation_targets')])
+                await query.edit_message_text(f"impersonation {brand.upper()}:", reply_markup=InlineKeyboardMarkup(buttons))
+            
+            elif callback.startswith('reason_imperson_'):
+                parts = callback.replace('reason_imperson_', '').split('_', 1)
+                context.user_data['reason'] = '8'
+                context.user_data['imperson_target'] = parts[1] if len(parts) > 1 else 'general'
+                await self.execute_reporting(update, context)
+            
+            elif callback.startswith('reason_'):
+                reason = callback.replace('reason_', '')
                 context.user_data['reason'] = reason
-                await self.start_reporting(update, context)
-        except:
-            pass
+                context.user_data['imperson_target'] = None
+                await self.execute_reporting(update, context)
+            
+            elif callback == 'stop_reporting':
+                self.stop_flag[user_id] = True
+                await query.edit_message_text("Stopping reports... Please wait")
+        
+        except Exception as e:
+            logger.error(f"Button callback error: {e}")
     
-    async def choose_content_type(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        buttons = [[InlineKeyboardButton("Report Profile", callback_data='content_profile')], [InlineKeyboardButton("Report Story", callback_data='content_story')], [InlineKeyboardButton("Report Reels", callback_data='content_reel')], [InlineKeyboardButton("Report Post", callback_data='content_post')]]
-        await update.callback_query.edit_message_text("Type:", reply_markup=InlineKeyboardMarkup(buttons))
-    
-    async def choose_report_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        buttons = [[InlineKeyboardButton("Normal", callback_data='mode_normal')], [InlineKeyboardButton("Advanced", callback_data='mode_advanced')]]
-        await update.callback_query.edit_message_text("Mode:", reply_markup=InlineKeyboardMarkup(buttons))
-    
-    async def show_report_categories(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        buttons = [[InlineKeyboardButton("Violence", callback_data='category_violence'), InlineKeyboardButton("Drugs", callback_data='category_drugs')], [InlineKeyboardButton("Impersonation", callback_data='category_impersonation'), InlineKeyboardButton("Special", callback_data='category_special')]]
-        await update.callback_query.edit_message_text("Category:", reply_markup=InlineKeyboardMarkup(buttons))
-    
-    async def show_advanced_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        context.user_data['state'] = 'input_advanced'
-        text = "Advanced:\n\n"
-        for k, v in REPORT_TYPES.items():
-            text += f"{k}={v}\n"
-        text += "\nSend: 1-6-7-4"
-        await update.callback_query.edit_message_text(text)
+    async def show_categories(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        buttons = [
+            [InlineKeyboardButton("Violence", callback_data='category_violence'), InlineKeyboardButton("Sexual", callback_data='category_sexual')],
+            [InlineKeyboardButton("Impersonation", callback_data='category_impersonation_targets'), InlineKeyboardButton("Harassment", callback_data='category_harassment')],
+            [InlineKeyboardButton("Abuse", callback_data='category_abuse'), InlineKeyboardButton("Misinformation", callback_data='category_misinformation')],
+            [InlineKeyboardButton("Spam", callback_data='category_spam'), InlineKeyboardButton("Intellectual", callback_data='category_intellectual')],
+            [InlineKeyboardButton("Drugs", callback_data='category_drugs'), InlineKeyboardButton("Illegal", callback_data='category_illegal')],
+        ]
+        await update.callback_query.edit_message_text("Select Report Category:", reply_markup=InlineKeyboardMarkup(buttons))
     
     async def message_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             user_id = update.effective_user.id
             message = update.message.text.strip()
             state = context.user_data.get('state', 'idle')
-            if state == 'owner_add_admin':
+            
+            if state == 'waiting_code':
+                if db.verify_and_use_code(message, user_id):
+                    await update.message.reply_text("Access granted! Welcome to the system.")
+                    db.add_user(user_id, update.effective_user.username or '', update.effective_user.first_name or '', 'user')
+                    await self.show_user_menu(update, context)
+                else:
+                    await update.message.reply_text("Invalid access code. Try again.")
+            
+            elif state == 'owner_add_admin_id':
                 try:
                     admin_id = int(message)
-                    db.set_admin(admin_id, 1)
-                    await update.message.reply_text(f"Admin added: {admin_id}")
+                    if admin_id == OWNER_ID:
+                        await update.message.reply_text("Cannot modify owner role.")
+                        return
+                    db.set_user_role(admin_id, 'admin')
+                    db.add_user(admin_id, '', '', 'admin', OWNER_ID)
+                    await update.message.reply_text(f"User {admin_id} is now Admin")
                     context.user_data['state'] = 'idle'
                 except:
-                    await update.message.reply_text("Error!")
-            elif state == 'owner_create_code':
+                    await update.message.reply_text("Invalid user ID")
+            
+            elif state == 'owner_remove_admin_id':
+                try:
+                    admin_id = int(message)
+                    if admin_id == OWNER_ID:
+                        await update.message.reply_text("Cannot remove owner.")
+                        return
+                    db.set_user_role(admin_id, 'user')
+                    await update.message.reply_text(f"User {admin_id} is no longer Admin")
+                    context.user_data['state'] = 'idle'
+                except:
+                    await update.message.reply_text("Invalid user ID")
+            
+            elif state == 'owner_broadcast_msg':
+                users = db.get_all_users()
+                count = 0
+                for user in users:
+                    try:
+                        await context.bot.send_message(user['user_id'], f"BROADCAST MESSAGE:\n\n{message}\n\n--- Developer: @{DEVELOPER_USERNAME}")
+                        count += 1
+                    except:
+                        pass
+                await update.message.reply_text(f"Broadcast sent to {count} users")
+                context.user_data['state'] = 'idle'
+            
+            elif state == 'dash_add_sub_id':
+                try:
+                    target_id = int(message)
+                    context.user_data['sub_user_id'] = target_id
+                    context.user_data['state'] = 'dash_add_sub_days'
+                    await update.message.reply_text("Enter subscription days:")
+                except:
+                    await update.message.reply_text("Invalid user ID")
+            
+            elif state == 'dash_add_sub_days':
+                try:
+                    days = int(message)
+                    target_id = context.user_data.get('sub_user_id')
+                    db.set_user_subscription(target_id, days)
+                    await update.message.reply_text(f"User {target_id} subscription extended to {days} days")
+                    context.user_data['state'] = 'idle'
+                except:
+                    await update.message.reply_text("Invalid days format")
+            
+            elif state == 'dash_remove_user_id':
+                try:
+                    target_id = int(message)
+                    db.set_user_role(target_id, 'expired')
+                    await update.message.reply_text(f"User {target_id} removed")
+                    context.user_data['state'] = 'idle'
+                except:
+                    await update.message.reply_text("Invalid user ID")
+            
+            elif state == 'dash_send_to_user_id':
+                if message.upper() == 'ALL':
+                    context.user_data['send_to_all'] = True
+                    context.user_data['state'] = 'dash_send_message'
+                    await update.message.reply_text("Enter message to send:")
+                else:
+                    try:
+                        target_id = int(message)
+                        context.user_data['send_to_user'] = target_id
+                        context.user_data['state'] = 'dash_send_message'
+                        await update.message.reply_text("Enter message to send:")
+                    except:
+                        await update.message.reply_text("Invalid user ID")
+            
+            elif state == 'dash_send_message':
+                if context.user_data.get('send_to_all'):
+                    users = db.get_all_users()
+                    count = 0
+                    for user in users:
+                        try:
+                            await context.bot.send_message(user['user_id'], f"ADMIN MESSAGE:\n\n{message}")
+                            count += 1
+                        except:
+                            pass
+                    await update.message.reply_text(f"Message sent to {count} users")
+                else:
+                    target_id = context.user_data.get('send_to_user')
+                    try:
+                        await context.bot.send_message(target_id, f"ADMIN MESSAGE:\n\n{message}")
+                        await update.message.reply_text(f"Message sent to {target_id}")
+                    except:
+                        await update.message.reply_text("Failed to send message")
+                context.user_data['state'] = 'idle'
+            
+            elif state == 'admin_add_user_id':
+                try:
+                    target_id = int(message.replace('@', ''))
+                    db.add_user(target_id, '', '', 'user', user_id, 30)
+                    await update.message.reply_text(f"User {target_id} added with 30 days subscription")
+                    context.user_data['state'] = 'idle'
+                except:
+                    await update.message.reply_text("Invalid user ID")
+            
+            elif state == 'admin_create_code_input':
                 if ',' not in message:
-                    await update.message.reply_text("Format: CODE,DAYS")
+                    await update.message.reply_text("Invalid format. Use: CODE,DAYS")
                     return
                 parts = message.split(',')
                 code = parts[0].strip().upper()
                 try:
                     days = int(parts[1].strip())
-                    if db.add_access_code(code, days, user_id):
-                        await update.message.reply_text(f"Created: {code}")
-                        context.user_data['state'] = 'idle'
+                    db.add_access_code(code, days, user_id)
+                    await update.message.reply_text(f"Code created: {code} (expires in {days} days)")
+                    context.user_data['state'] = 'idle'
+                except:
+                    await update.message.reply_text("Invalid days format")
+            
+            elif state == 'admin_send_msg_id':
+                try:
+                    target_id = int(message)
+                    context.user_data['admin_msg_user'] = target_id
+                    context.user_data['state'] = 'admin_send_msg_text'
+                    await update.message.reply_text("Enter message:")
+                except:
+                    await update.message.reply_text("Invalid user ID")
+            
+            elif state == 'admin_send_msg_text':
+                target_id = context.user_data.get('admin_msg_user')
+                try:
+                    await context.bot.send_message(target_id, f"ADMIN MESSAGE:\n\n{message}")
+                    await update.message.reply_text(f"Message sent to {target_id}")
+                except:
+                    await update.message.reply_text("Failed to send message")
+                context.user_data['state'] = 'idle'
+            
+            elif state == 'input_single_session':
+                session_id = message.strip()
+                if len(session_id) > 20:
+                    if InstagramAPI.validate_session(session_id):
+                        db.add_session(user_id, session_id)
+                        await update.message.reply_text("Session added successfully")
                     else:
-                        await update.message.reply_text("Error!")
-                except:
-                    await update.message.reply_text("Invalid!")
-            elif state == 'admin_add_user':
-                try:
-                    target_id = int(message.replace('@', '').strip())
-                    db.add_user(target_id, '', '', user_id, is_subscribed=1, days=30)
-                    await update.message.reply_text(f"Added: {target_id}")
-                    context.user_data['state'] = 'idle'
-                except:
-                    await update.message.reply_text("Invalid!")
-            elif state == 'admin_create_code':
-                if ',' not in message:
-                    await update.message.reply_text("Format: CODE,DAYS")
-                    return
-                parts = message.split(',')
-                code = parts[0].strip().upper()
-                try:
-                    days = int(parts[1].strip())
-                    if db.add_access_code(code, days, user_id):
-                        await update.message.reply_text(f"Created: {code}")
-                        context.user_data['state'] = 'idle'
-                except:
-                    await update.message.reply_text("Invalid!")
-            elif state == 'input_session':
-                sessions = message.split('\n') if context.user_data.get('session_mode') == 'multi' else [message]
+                        await update.message.reply_text("Session validation failed")
+                else:
+                    await update.message.reply_text("Invalid session format")
+                context.user_data['state'] = 'idle'
+            
+            elif state == 'input_multi_session':
+                sessions = message.split('\n')
                 valid = 0
                 for s in sessions:
                     s = s.strip()
-                    if ':' not in s:
-                        continue
-                    parts = s.split(':')
-                    if len(parts) != 2:
-                        continue
-                    session_id, csrf = parts[0].strip(), parts[1].strip()
-                    if len(session_id) > 20 and len(csrf) > 20:
-                        if InstagramAPI.validate_session(session_id, csrf):
-                            db.add_session(user_id, session_id, csrf)
+                    if len(s) > 20:
+                        if InstagramAPI.validate_session(s):
+                            db.add_session(user_id, s)
                             valid += 1
-                await update.message.reply_text(f"Added: {valid}")
+                await update.message.reply_text(f"Sessions added: {valid}")
                 context.user_data['state'] = 'idle'
-            elif state == 'input_target':
-                targets = message.split(':') if ':' in message else (message.split() if ' ' in message else message.split('\n'))
+            
+            elif state == 'input_single_target':
+                target = message.lower().replace('@', '').strip()
+                target_id = InstagramAPI.get_user_id(target)
+                if target_id:
+                    db.add_target(user_id, target, target_id)
+                    await update.message.reply_text(f"Target added: @{target}")
+                else:
+                    await update.message.reply_text("Target not found")
+                context.user_data['state'] = 'idle'
+            
+            elif state == 'input_multi_target':
+                targets = message.replace('\n', ' ').split()
                 valid = 0
                 for target in targets:
                     target = target.lower().replace('@', '').strip()
@@ -639,93 +911,70 @@ Developer: {DEVELOPER}"""
                         if target_id:
                             db.add_target(user_id, target, target_id)
                             valid += 1
-                await update.message.reply_text(f"Added: {valid}")
+                await update.message.reply_text(f"Targets added: {valid}")
                 context.user_data['state'] = 'idle'
+            
             elif state == 'input_item_id':
                 context.user_data['item_id'] = message.strip().split('/')[-1]
-                context.user_data['state'] = 'idle'
-                buttons = [[InlineKeyboardButton("Normal", callback_data='mode_normal')], [InlineKeyboardButton("Advanced", callback_data='mode_advanced')]]
-                await update.message.reply_text("Mode:", reply_markup=InlineKeyboardMarkup(buttons))
-            elif state == 'input_advanced':
-                reasons = [r.strip() for r in message.split('-') if r.strip()]
-                context.user_data['reasons'] = reasons
-                sessions = db.get_sessions(user_id)
-                targets = db.get_targets(user_id)
-                if not sessions or not targets:
-                    await update.message.reply_text("Add sessions/targets!")
-                    return
-                status_msg = await context.bot.send_message(user_id, f"Starting...\nSessions: {len(sessions)}\nTargets: {len(targets)}\nTypes: {len(reasons)}")
-                threading.Thread(target=self.reporting_loop_advanced, args=(user_id, sessions, targets, reasons, context.user_data.get('content_type', 'profile'), status_msg.message_id, context.bot), daemon=True).start()
-            elif state == 'waiting_subscription':
-                if db.verify_and_use_code(message, user_id):
-                    await update.message.reply_text("Access granted!")
-                    context.user_data['state'] = 'idle'
-                    await self.show_user_menu(update, context)
-                else:
-                    await update.message.reply_text("Invalid!")
-        except:
-            pass
+                await self.show_categories(update, context)
+        
+        except Exception as e:
+            logger.error(f"Message handler error: {e}")
     
-    async def start_reporting(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        try:
-            query = update.callback_query
-            user_id = update.effective_user.id
-            sessions = db.get_sessions(user_id)
-            targets = db.get_targets(user_id)
-            reason = context.user_data.get('reason', '1')
-            content_type = context.user_data.get('content_type', 'profile')
-            if not sessions or not targets:
-                await query.edit_message_text("Add sessions/targets!")
-                return
-            status_msg = await context.bot.send_message(user_id, f"Starting\n\nSessions: {len(sessions)}\nTargets: {len(targets)}\nReason: {reason}\n\nStatus: Initializing...")
-            threading.Thread(target=self.reporting_loop, args=(user_id, sessions, targets, reason, content_type, status_msg.message_id, context.bot), daemon=True).start()
-        except:
-            pass
+    async def execute_reporting(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        sessions = db.get_sessions(user_id)
+        targets = db.get_targets(user_id)
+        reason = context.user_data.get('reason', '1')
+        content_type = context.user_data.get('content_type', 'profile')
+        
+        if not sessions or not targets:
+            await update.callback_query.edit_message_text("Error: Add sessions and targets first")
+            return
+        
+        self.stop_flag[user_id] = False
+        status_msg = await context.bot.send_message(user_id, f"Reporting started...\n\nContent Type: {content_type.upper()}\nReason: {reason}\nTargets: {len(targets)}\nSessions: {len(sessions)}\n\nStatus: Processing...\n\n[Press menu for STOP button]")
+        
+        keyboard = [[InlineKeyboardButton("STOP REPORTING", callback_data='stop_reporting')]]
+        await context.bot.edit_message_reply_markup(chat_id=user_id, message_id=status_msg.message_id, reply_markup=InlineKeyboardMarkup(keyboard))
+        
+        threading.Thread(target=self.reporting_worker_infinite, args=(user_id, sessions, targets, reason, content_type, status_msg.message_id, context.bot), daemon=True).start()
     
-    def reporting_loop(self, user_id: int, sessions: List[Dict], targets: List[Dict], reason: str, content_type: str, status_msg_id: int, bot):
+    def reporting_worker_infinite(self, user_id: int, sessions: List[Dict], targets: List[Dict], reason: str, content_type: str, status_msg_id: int, bot):
         try:
             done = 0
             failed = 0
-            for target in targets:
-                for session in sessions:
-                    success, status, msg = InstagramAPI.send_report(target['target_id'], session['session_id'], session['csrf_token'], reason, content_type)
-                    if success:
-                        done += 1
-                    else:
-                        failed += 1
-                        if status == 429:
-                            asyncio.run(bot.edit_message_text(chat_id=user_id, message_id=status_msg_id, text=f"ACCOUNT BANNED!\n\nDone: {done}\nFailed: {failed}\n\nSTOP ALL ACTIVITY!"))
-                            return
-                    if (done + failed) % 3 == 0:
-                        try:
-                            asyncio.run(bot.edit_message_text(chat_id=user_id, message_id=status_msg_id, text=f"Done: {done} | Failed: {failed} | Target: @{target['target_username']}"))
-                        except:
-                            pass
-            asyncio.run(bot.edit_message_text(chat_id=user_id, message_id=status_msg_id, text=f"Complete!\n\nDone: {done}\nFailed: {failed}\nTotal: {done + failed}"))
-        except:
-            pass
-    
-    def reporting_loop_advanced(self, user_id: int, sessions: List[Dict], targets: List[Dict], reasons: List, content_type: str, status_msg_id: int, bot):
-        try:
-            done = 0
-            failed = 0
-            for target in targets:
-                for reason in reasons:
+            update_counter = 0
+            
+            while not self.stop_flag.get(user_id, False):
+                for target in targets:
+                    if self.stop_flag.get(user_id, False):
+                        break
+                    
                     for session in sessions:
-                        success, status, msg = InstagramAPI.send_report(target['target_id'], session['session_id'], session['csrf_token'], reason, content_type)
+                        if self.stop_flag.get(user_id, False):
+                            break
+                        
+                        success, status, msg = InstagramAPI.send_report(target['target_id'], session['session_id'], reason, content_type)
+                        
                         if success:
                             done += 1
                         else:
                             failed += 1
                             if status == 429:
-                                asyncio.run(bot.edit_message_text(chat_id=user_id, message_id=status_msg_id, text=f"BANNED!\n\nDone: {done}"))
+                                asyncio.run(bot.edit_message_text(chat_id=user_id, message_id=status_msg_id, text=f"ALERT: Account Banned\n\nDone: {done}\nFailed: {failed}\nSession flagged for ban detection"))
+                                self.stop_flag[user_id] = True
                                 return
-                        if (done + failed) % 3 == 0:
+                        
+                        update_counter += 1
+                        if update_counter % 5 == 0:
                             try:
-                                asyncio.run(bot.edit_message_text(chat_id=user_id, message_id=status_msg_id, text=f"Advanced: {done} | Failed: {failed}"))
+                                asyncio.run(bot.edit_message_text(chat_id=user_id, message_id=status_msg_id, text=f"Done: {done} | Failed: {failed} | Target: @{target['target_username']}\n\nContinuing..."))
                             except:
                                 pass
-            asyncio.run(bot.edit_message_text(chat_id=user_id, message_id=status_msg_id, text=f"Advanced Done!\n\nDone: {done}\nFailed: {failed}"))
+            
+            asyncio.run(bot.edit_message_text(chat_id=user_id, message_id=status_msg_id, text=f"Reporting Stopped\n\nTotal Done: {done}\nTotal Failed: {failed}\nDeveloper: @{DEVELOPER_USERNAME}"))
+            self.stop_flag.pop(user_id, None)
         except:
             pass
     
